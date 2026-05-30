@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: payment-api
+    version: {{ .Chart.AppVersion }}
+spec:
+  replicas: {{ .Values.paymentApi.replicaCount }}
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: payment-api
+          image: "{{ .Values.paymentApi.image.repository }}:{{ .Values.paymentApi.image.tag }}"
+          imagePullPolicy: {{ .Values.paymentApi.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://{{ .Values.postgres.host }}:{{ .Values.postgres.port }}/{{ .Values.postgres.database }}"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.postgres.username }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: {{ .Values.postgres.password }}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ .Values.kafka.bootstrapServers }}
+          livenessProbe:
+            {{- toYaml .Values.paymentApi.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.paymentApi.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.paymentApi.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: payment-api
+  ports:
+    - port: {{ .Values.paymentApi.service.port }}
+      targetPort: 8080
+  type: {{ .Values.paymentApi.service.type }}

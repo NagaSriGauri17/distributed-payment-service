@@ -1,0 +1,58 @@
+paymentApi:
+  image:
+    repository: ghcr.io/your-username/payment-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  livenessProbe:
+    httpGet:
+      path: /actuator/health/liveness
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /actuator/health/readiness
+      port: 8080
+    initialDelaySeconds: 20
+    periodSeconds: 5
+
+notificationService:
+  image:
+    repository: ghcr.io/your-username/payment-notification
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8081
+
+auditService:
+  image:
+    repository: ghcr.io/your-username/payment-audit
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8082
+
+postgres:
+  host: payment-postgres
+  port: 5432
+  database: paymentdb
+  username: payment_user
+  password: payment_pass
+
+kafka:
+  bootstrapServers: payment-kafka:9092

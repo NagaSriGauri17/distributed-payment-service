@@ -1,0 +1,169 @@
+name: Distributed Payment Service CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/payment
+
+jobs:
+  # ── Build & Test payment-api ───────────────────────────────────────────────
+  build-payment-api:
+    name: Build & Test payment-api
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: payment-api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests
+        run: mvn verify -B
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: payment-api-test-report
+          path: payment-api/target/surefire-reports/
+
+  # ── Build & Test notification-service ─────────────────────────────────────
+  build-notification-service:
+    name: Build & Test notification-service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: notification-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests
+        run: mvn verify -B
+
+  # ── Build & Test audit-service ─────────────────────────────────────────────
+  build-audit-service:
+    name: Build & Test audit-service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: audit-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests
+        run: mvn verify -B
+
+  # ── Build & Push Docker images ─────────────────────────────────────────────
+  docker-build-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [build-payment-api, build-notification-service, build-audit-service]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build all JARs
+        run: |
+          cd payment-api && mvn package -DskipTests -B && cd ..
+          cd notification-service && mvn package -DskipTests -B && cd ..
+          cd audit-service && mvn package -DskipTests -B && cd ..
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push payment-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./payment-api
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ github.sha }},${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:latest
+
+      - name: Build & push notification-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./notification-service
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-notification:${{ github.sha }},${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-notification:latest
+
+      - name: Build & push audit-service image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./audit-service
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-audit:${{ github.sha }},${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-audit:latest
+
+  # ── Deploy to Minikube ─────────────────────────────────────────────────────
+  deploy-minikube:
+    name: Deploy to Minikube
+    runs-on: ubuntu-latest
+    needs: docker-build-push
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          minikube-version: 'latest'
+          kubernetes-version: 'v1.31.0'
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.16.0'
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install payment-service ./helm/payment-service \
+            --namespace payment-system \
+            --create-namespace \
+            --set paymentApi.image.tag=${{ github.sha }} \
+            --set notificationService.image.tag=${{ github.sha }} \
+            --set auditService.image.tag=${{ github.sha }} \
+            --wait --timeout 5m
+
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n payment-system
+          kubectl get services -n payment-system
