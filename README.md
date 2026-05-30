@@ -1,4 +1,4 @@
-# PayFlow — Distributed Payment Processing Platform
+Distributed Payment Processing Platform
 
 A production-grade distributed payment processing system built with **Spring Boot 3**, **Go**, **React**, and **Kafka** — featuring full observability, resilience patterns, a modern UI with dark/light theme, and automated audit logging.
 
